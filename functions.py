@@ -1,118 +1,110 @@
 from __future__ import annotations
 
-from math import sqrt, sin, cos
-from Vector3 import Vector3
-from Vector2 import Vector2
+from math import sin, cos
+import numpy as np
+
+from numba import njit
 
 
+@njit(fastmath=True)
 def clamp(value, min_value, max_value) -> float | int:
     return min_value if value < min_value else max_value if value > max_value else value
 
 
-def sign(n: float | int | Vector3 | Vector2) -> int | Vector3 | Vector2:
-    if type(n) == int or type(n) == float:
-        return -1 if n < 0 else 1 if n > 0 else 0
-    elif type(n) == Vector2:
-        return Vector2(sign(n.x), sign(n.y))
-    elif type(n) == Vector3:
-        return Vector3(sign(n.x), sign(n.y), sign(n.z))
+@njit(fastmath=True)
+def length(vector: np.ndarray) -> float:
+    res = 0
+    for elem in vector:
+        res += elem ** 2
+    return np.sqrt(res)
 
 
-def length(vector: Vector2 | Vector3) -> float:
-    if type(vector) == Vector2:
-        return sqrt(vector.x ** 2 + vector.y ** 2)
-    elif type(vector) == Vector3:
-        return sqrt(vector.x ** 2 + vector.y ** 2 + vector.z ** 2)
+@njit(fastmath=True)
+def normalize(vector: np.ndarray) -> np.ndarray:
+    return vector / length(vector)
 
 
-def normalize(vector: Vector2 | Vector3) -> Vector2 | Vector3:
-    if type(vector) == Vector2:
-        try:
-            return Vector2(vector.x / length(vector), vector.y / length(vector))
-        except ZeroDivisionError:
-            return Vector2(0, 0)
-    elif type(vector) == Vector3:
-        try:
-            return Vector3(vector.x / length(vector), vector.y / length(vector), vector.z / length(vector))
-        except ZeroDivisionError:
-            return Vector3(0, 0, 0)
+@njit(fastmath=True)
+def dot(vector1: np.ndarray, vector2: np.ndarray) -> float:
+    return sum(vector1 * vector2)
 
 
-def dot(vector1: Vector2 | Vector3, vector2: Vector2 | Vector3) -> float:
-    if type(vector1) == Vector2 and type(vector2 == Vector2):
-        return vector1.x * vector2.x + vector1.y * vector2.y
-    elif type(vector1) == Vector3 and type(vector2 == Vector3):
-        return vector1.x * vector2.x + vector1.y * vector2.y + vector1.z * vector2.z
+@njit(fastmath=True)
+def step_float(edge, x):
+    return 1 if x > edge else 0
 
 
-def step(edge: int | float | Vector2 | Vector3, x: int | float | Vector2 | Vector3):
-    if type(edge) in [float, int] and type(x) in [float, int]:
-        return 1 if x > edge else 0
-    elif type(edge) == Vector2 and type(x) == Vector2:
-        return Vector2(step(edge.x, x.x), step(edge.y, x.y))
-    elif type(edge) == Vector3 and type(x) == Vector3:
-        return Vector3(step(edge.x, x.x), step(edge.y, x.y), step(edge.z, x.z))
+@njit(fastmath=True)
+def step(edge: np.ndarray, x: np.ndarray):
+    return np.array([step_float(edge[0], x[0]), step_float(edge[1], x[1]), step_float(edge[2], x[2])])
 
 
-def reflect(ray: Vector3, normal: Vector3):
+@njit(fastmath=True)
+def reflect(ray: np.ndarray, normal: np.ndarray):
     return ray - normal * (2 * dot(normal, ray))
 
 
-def sphere(camera: Vector3, ray: Vector3,  radius: float):
+@njit(fastmath=True)
+def sphere(camera: np.ndarray, ray: np.ndarray,  radius: float):
     b = dot(camera, ray)
     c = dot(camera, camera) - radius ** 2
     h = b ** 2 - c
     if h < 0:
-        return Vector2(-1, -1)
-    h = sqrt(h)
-    return Vector2(-b - h, -b + h)
+        return np.array([-1.0, -1.0])
+    h = np.sqrt(h)
+    return np.array([-b - h, -b + h])
 
 
-def box(camera: Vector3, ray: Vector3, position: Vector3, size: Vector3):
-    camera -= position
-    m = Vector3(1, 1, 1) / ray
-    n = m * camera
-    k = abs(m) * size
+@njit(fastmath=True)
+def box(camera: np.ndarray, ray: np.ndarray, position: np.ndarray, size: np.ndarray):
+    b_camera = camera - position
+    m = np.array([1, 1, 1]) / ray
+    n = m * b_camera
+    k = np.abs(m) * size
     t1 = -n - k
     t2 = -n + k
-    tN = max(t1.x, t1.y, t1.z)
-    tF = min(t2.x, t2.y, t2.z)
+    tN = np.max(t1)
+    tF = np.min(t2)
 
     if tN > tF or tF < 0:
-        return Vector2(-1, -1), Vector2(0, 0)
+        return np.array([-1.0, -1.0])
 
-    yzx = Vector3(t1.y, t1.z, t1.x)
-    zxy = Vector3(t1.z, t1.x, t1.y)
-
-    normal_angle = -sign(ray) * step(yzx, t1) * step(zxy, t1)
-
-    return Vector2(tN, tF), normal_angle
+    return np.array([tN, tF])
 
 
-def plane(camera: Vector3, ray: Vector3, p, w):
+def box_normal(camera: np.ndarray, ray: np.ndarray, position: np.ndarray, size: np.ndarray):
+    b_camera = camera - position
+    m = np.array([1, 1, 1]) / ray
+    n = m * b_camera
+    k = np.abs(m) * size
+    t1 = -n - k
+    yzx = np.array([t1[1], t1[2], t1[0]])
+    zxy = np.array([t1[2], t1[0], t1[1]])
+
+    return -np.sign(ray) * step(yzx, t1) * step(zxy, t1)
+
+
+@njit(fastmath=True)
+def plane(camera: np.ndarray, ray: np.ndarray, p, w):
     return -(dot(camera, p) + w) / dot(ray, p)
 
 
-def rotate_x(vector: Vector3, angle: float):
-    return Vector3(vector.x,
-                   vector.z * sin(angle) + vector.y * cos(angle),
-                   vector.z * cos(angle) - vector.y * sin(angle))
+@njit(fastmath=True)
+def rotate_x(vector: np.ndarray, angle: float):
+    return np.array([vector[0],
+                    vector[2] * sin(angle) + vector[1] * cos(angle),
+                    vector[2] * cos(angle) - vector[1] * sin(angle)])
 
 
-def rotate_y(vector: Vector3, angle: float):
-    return Vector3(vector.x * cos(angle) - vector.z * sin(angle),
-                   vector.y,
-                   vector.x * sin(angle) + vector.z * cos(angle))
+@njit(fastmath=True)
+def rotate_y(vector: np.ndarray, angle: float):
+    return np.array([vector[0] * cos(angle) - vector[2] * sin(angle),
+                    vector[1],
+                    vector[0] * sin(angle) + vector[2] * cos(angle)])
 
 
-def rotate_z(vector: Vector3, angle: float):
-    return Vector3(vector.x * cos(angle) - vector.y * sin(angle),
-                   vector.x * sin(angle) + vector.y * cos(angle),
-                   vector.z)
-
-
-def vec2tup(vector: Vector2 | Vector3):
-    if type(vector) == Vector2:
-        return vector.x, vector.y
-    if type(vector) == Vector3:
-        return vector.x, vector.y, vector.z
+@njit(fastmath=True)
+def rotate_z(vector: np.ndarray, angle: float):
+    return np.array([vector[0] * cos(angle) - vector[1] * sin(angle),
+                    vector[0] * sin(angle) + vector[1] * cos(angle),
+                    vector[2]])
