@@ -72,6 +72,7 @@ def box(camera: np.ndarray, ray: np.ndarray, position: np.ndarray, size: np.ndar
     return np.array([tN, tF])
 
 
+@njit(fastmath=True)
 def box_normal(camera: np.ndarray, ray: np.ndarray, position: np.ndarray, size: np.ndarray):
     b_camera = camera - position
     m = np.array([1, 1, 1]) / ray
